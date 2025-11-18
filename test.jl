@@ -1,5 +1,7 @@
 using Glob: glob
-using Dates: now
+using Dates: now, time
+
+start = time()
 
 const BASE_DIR = @__DIR__
 const BILIBILI_CACHE_DIR = joinpath(BASE_DIR, "bilibili的视频缓存文件")
@@ -12,6 +14,7 @@ const REGEX_NUM_DIR = r"^\d+$"
 const OUTPUT_PATH = joinpath(BASE_DIR, "output")
 # 日志目录
 const LOG_PATH = joinpath(BASE_DIR, "log")
+const NUM_THREADS = Threads.nthreads()
 
 
 """
@@ -51,7 +54,7 @@ merge_audio_video(readpath::String, output_path::String) = let
         output_file = replace(output_file, r"\.mp4$" => string("_new_", now(), ".mp4"))
     end
     command = `ffmpeg -i $video_file -i $audio_file -c:v copy -c:a aac -strict experimental $output_file`
-    @show read(command, String)
+    read(command, String)
 end
 
 
@@ -59,25 +62,50 @@ begin
     # 获取所有纯数字目录
     numeric_dirs_basename = select_dirs(REGEX_NUM_DIR, BILIBILI_CACHE_DIR)
 
-    # 遍历每个纯数字目录
-    for (index, num_dir_basename) in enumerate(numeric_dirs_basename)
+    tasks = 1:length(numeric_dirs_basename)
+    # 均分任务
+    chunks = [tasks[i:NUM_THREADS:end] for i in 1:NUM_THREADS]
+    thread_tasks = []
 
-        here_path = joinpath(BILIBILI_CACHE_DIR, num_dir_basename)
-        # 每次循环都回到初始路径 选择名称为纯数字的目录, c_dir, 数字文件夹
-        c_dir_basename = first(select_dirs(REGEX_C_NUM_DIR, here_path))
+    for chunk in chunks
+        # 遍历每个纯数字目录
+        task = Threads.@spawn for (index, ndbi) in enumerate(chunk)
+            here_path = joinpath(BILIBILI_CACHE_DIR, numeric_dirs_basename[ndbi])
+            # 每次循环都回到初始路径 选择名称为纯数字的目录, c_dir, 数字文件夹
+            c_dir_basename = first(select_dirs(REGEX_C_NUM_DIR, here_path))
 
-        here_path = joinpath(here_path, c_dir_basename)
-        small_num_dir_basename = first(select_dirs(REGEX_NUM_DIR, here_path))
+            here_path = joinpath(here_path, c_dir_basename)
+            small_num_dir_basename = first(select_dirs(REGEX_NUM_DIR, here_path))
 
-        # 一步到位 直接进入最终的文件存放地
-        here_path = joinpath(here_path, small_num_dir_basename)
-        merge_audio_video(here_path, joinpath(OUTPUT_PATH, num_dir_basename))
+            # 一步到位 直接进入最终的文件存放地
+            here_path = joinpath(here_path, small_num_dir_basename)
+            output_path = joinpath(OUTPUT_PATH, numeric_dirs_basename[ndbi])
+            
+            merge_audio_video(here_path, output_path)
+            
+            @info "当前处理目录: ", pwd()
+            # index >= 1 && break
+        end
+        push!(thread_tasks, task)
 
-        @info "当前处理目录: ", pwd()
-        # index >= 1 && break
     end
-    nothing
+
+    # 等待完成
+    for t in thread_tasks
+        fetch(t)
+    end
+
+    # 20.32 秒
+    # 46.88 秒
+    # 4 个 27 秒
+    # 6 个 20.38 秒
+
 end
+
+elapsed = time() - start
+@info "总共耗时 $(round(elapsed, digits=2)) 秒"
+
+
 
 
 
