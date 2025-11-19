@@ -10,11 +10,13 @@ const PART_AUDIO_NAME = "audio.m4s"
 const OUTPUT_FILE_NAME = "output.mp4"
 const REGEX_C_NUM_DIR = r"^c_\d+$"
 const REGEX_NUM_DIR = r"^\d+$"
+const REGEX_PURPOSE_PATH = r"*/$BILIBILI_CACHE_DIR/\d+$/c_\d+$/\d+$/"
 # 输出视频目录
 const OUTPUT_PATH = joinpath(BASE_DIR, "output")
 # 日志目录
 const LOG_PATH = joinpath(BASE_DIR, "log")
 const NUM_THREADS = Threads.nthreads()
+
 
 
 """
@@ -26,34 +28,30 @@ function select_dirs(regular::Regex, curr_path::String)
     return map(dir -> basename(dir), dirs)
 end
 
-"""
-"""
-function create_if_not_exist(path::String)
-    
-end
 
-
-# 合并音频和视频文件
-merge_audio_video(readpath::String, output_path::String) = let
-    audio_file = joinpath(readpath, PART_AUDIO_NAME)
-    video_file = joinpath(readpath, PART_VIDEO_NAME)
-    foreach([audio_file, video_file]) do f
-        if !isfile(f)
-            @error "文件不存在: $f"
+"""
+合并音频和视频文件
+"""
+function merge_audio_video(readpath::String, outputpath::String)
+    (audiofile, videofile) = map([PART_AUDIO_NAME, PART_VIDEO_NAME]) do fname
+        path = joinpath(readpath, fname)
+        if !isfile(path)
+            error("文件不存在: $path" )
             # 跳过的路径将写在日志文件里
-            return false
         end
+        path
     end
-    output_file = joinpath(output_path, OUTPUT_FILE_NAME)
+
     # 这里先要判断 有没有那个数字文件夹
-    !ispath(output_path) && mkpath(output_path)
+    !ispath(outputpath) && mkpath(outputpath)
+    outputfile = joinpath(outputpath, OUTPUT_FILE_NAME)
     # 再判断有没有数字文件夹下面那个output.mp4文件
-    @info output_file
-    if ispath(output_file)
-        @warn "输出文件已存在 : $output_file, 将另外命名为 output_new_(时间).mp4"
-        output_file = replace(output_file, r"\.mp4$" => string("_new_", now(), ".mp4"))
+    @info outputfile
+    if ispath(outputfile)
+        @warn "输出文件已存在 : $outputfile, 将另外命名为 output_new_(时间).mp4"
+        outputfile = replace(outputfile, r"\.mp4$" => string("_new_", now(), ".mp4"))
     end
-    command = `ffmpeg -i $video_file -i $audio_file -c:v copy -c:a aac -strict experimental $output_file`
+    command = `ffmpeg -i $videofile -i $audiofile -c:v copy -c:a aac -strict experimental $outputfile`
     read(command, String)
 end
 
